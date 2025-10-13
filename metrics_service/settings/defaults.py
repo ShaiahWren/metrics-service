@@ -34,6 +34,7 @@ THIRD_PARTY_APPS = [
     "rest_framework",
     "rest_framework.authtoken",
     "drf_spectacular",
+    "dynamic_preferences",
     "corsheaders",
     "oauth2_provider",
     "social_django",

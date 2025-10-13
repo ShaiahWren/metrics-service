@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.11'",
@@ -534,6 +534,19 @@ wheels = [
 ]
 
 [[package]]
+name = "django-dynamic-preferences"
+version = "1.17.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+    { name = "persisting-theory" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6f/bf/b1b1554d71c10b4380aa4e060ec03bd1952a76d951b0faca6cc1581b99f2/django_dynamic_preferences-1.17.0.tar.gz", hash = "sha256:c13520107d13c696997a237f8e7731cef93642837d523b95863a40115f7f2d8f", size = 51268, upload-time = "2025-01-10T23:58:31.001Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c5/7e/386a9cb4fdc83bcc33a381842a8e359621c780f24ba820c3080406edaafe/django_dynamic_preferences-1.17.0-py2.py3-none-any.whl", hash = "sha256:1f7111e01235b6273a4038783d92a8bf2826cb4eee7e324779b2dc76e3e00b06", size = 50758, upload-time = "2025-01-10T23:58:28.369Z" },
+]
+
+[[package]]
 name = "django-oauth-toolkit"
 version = "3.0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -888,6 +901,7 @@ dependencies = [
     { name = "django" },
     { name = "django-ansible-base", extra = ["api-documentation", "jwt-consumer"] },
     { name = "django-cors-headers" },
+    { name = "django-dynamic-preferences" },
     { name = "django-oauth-toolkit" },
     { name = "django-split-settings" },
     { name = "djangorestframework" },
@@ -967,6 +981,7 @@ requires-dist = [
     { name = "django-auth-ldap", marker = "extra == 'ldap'", specifier = ">=5.2.0" },
     { name = "django-cors-headers", specifier = ">=4.0" },
     { name = "django-debug-toolbar", marker = "extra == 'dev'", specifier = ">=4.2" },
+    { name = "django-dynamic-preferences", specifier = ">=1.16.0" },
     { name = "django-oauth-toolkit", specifier = ">=2.2.0" },
     { name = "django-split-settings", specifier = ">=1.2" },
     { name = "django-stubs", extras = ["compatible-mypy"], marker = "extra == 'dev'", specifier = ">=4.2" },
@@ -1105,6 +1120,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ca/bc/f35b8446f4531a7cb215605d100cd88b7ac6f44ab3fc94870c120ab3adbf/pathspec-0.12.1.tar.gz", hash = "sha256:a482d51503a1ab33b1c67a6c3813a26953dbdc71c31dacaef9a838c4e29f5712", size = 51043, upload-time = "2023-12-10T22:30:45Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cc/20/ff623b09d963f88bfde16306a54e12ee5ea43e9b597108672ff3a408aad6/pathspec-0.12.1-py3-none-any.whl", hash = "sha256:a0d503e138a4c123b27490a4f7beda6a01c6f288df0e4a8b79c7eb0dc7b4cc08", size = 31191, upload-time = "2023-12-10T22:30:43.14Z" },
+]
+
+[[package]]
+name = "persisting-theory"
+version = "1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8e/2b/02bec776f5f27ead2637035a7b324fa7619252bed373b6d3911153b7adad/persisting-theory-1.0.tar.gz", hash = "sha256:0f840fa22247bcaa514094da7f3b26c602359429ab12d2cd88be06b49a336290", size = 11949, upload-time = "2022-05-06T08:18:25.805Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/89/5d/533442b24abd6be67a332987aebc0ce0fcfe39bfad36564d08f3db375291/persisting_theory-1.0-py3-none-any.whl", hash = "sha256:73fe3ba1ea7ab67632a1c292fc5c9fa6d3ebfd0e2ad74defa56e316abf3c8d21", size = 13042, upload-time = "2022-05-06T08:18:23.646Z" },
 ]
 
 [[package]]

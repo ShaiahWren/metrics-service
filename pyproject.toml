@@ -28,6 +28,7 @@ dependencies = [
     "Django>=4.2,<5.0",
     "djangorestframework>=3.15",
     "django-ansible-base[jwt_consumer,api_documentation,rbac,rest_filters]",
+    "django-dynamic-preferences>=1.16.0",    
     "django-split-settings>=1.2",
     "drf-spectacular>=0.27",
     "django-cors-headers>=4.0",
