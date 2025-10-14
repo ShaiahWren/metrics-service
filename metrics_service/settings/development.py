@@ -3,7 +3,6 @@ Development settings for metrics_service.
 These settings are optimized for local development with Docker.
 """
 
-
 from .defaults import *  # noqa: F403, F401
 
 # Override DEBUG setting

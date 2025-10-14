@@ -3,16 +3,24 @@ Tests for Dynaconf configuration and settings precedence.
 
 Following AAP Phase 1 standards from handbook proposal 0014-Django-Settings.
 Tests ensure proper precedence order and validator functionality.
+
+Note: These tests are marked as integration tests because they require
+the full dynaconf settings environment, not the test.py settings used by pytest.
 """
 
 import os
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 # Set a valid SECRET_KEY for test module import
 # This allows Django settings to load without validation errors
 os.environ.setdefault("METRICS_SERVICE_SECRET_KEY", "test-secret-key-for-dynaconf-tests")
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "metrics_service.settings")
+
+# Mark all tests in this module as integration tests
+pytestmark = pytest.mark.integration
 
 
 class TestDynaconfPrecedence:

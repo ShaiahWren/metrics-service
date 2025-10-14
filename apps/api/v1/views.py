@@ -152,7 +152,7 @@ class ConfigView(AnsibleBaseDjangoAppApiView, viewsets.ViewSet):
         operation_id="config_update", description="Update current configuration", request=dict, responses={204: None}
     )
     @action(detail=False, methods=["post"])
-    def create(self, request):
+    def update_config(self, request):
         DYNACONF.merge(request.data)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
