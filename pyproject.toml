@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "metrics-service"
-description = "AAP Metrics Service"
+description = "AAP Metrics Service Technical Preview"
 readme = "README.md"
 requires-python = "==3.12.*"
 license = "MIT"
@@ -19,7 +19,7 @@ classifiers = [
     "Framework :: Django",
     "Framework :: Django :: 5.2.7",
 ]
-version = "1.0.0"
+version = "0.0.1"
 
 dependencies = [
     "Django==5.2.7",
