@@ -15,3 +15,7 @@ python manage.py metrics_service init-service-id
 # puts TASK_GROUPS in the Task DB table
 echo "Initializing system tasks..."
 python manage.py metrics_service init-system-tasks
+
+# puts TASK_GROUPS in the Task DB table
+echo "Collecting Static Files"
+python manage.py collectstatic --noinput --clear || echo "Failed to collect static files"
