@@ -80,9 +80,14 @@ def execute_db_task(**kwargs) -> dict[str, Any]:
         update_task_status(task, execution, status="running")
         log_task_execution(task.name, "running", f"Executing function: {task.function_name}")
 
-        # Execute the actual task function
+        # Execute the actual task function, forwarding execution_id so inner
+        # tasks (e.g. collect_daily_metrics) can link their collections back to
+        # this TaskExecution record.
         task_function = TASK_FUNCTIONS[task.function_name]
-        result = task_function(**task.task_data)
+        task_kwargs = {**task.task_data}
+        if execution_id:
+            task_kwargs["execution_id"] = execution_id
+        result = task_function(**task_kwargs)
 
         # Complete task execution
         status = "completed" if result.get("status") == "success" else "failed"
@@ -115,8 +120,7 @@ def submit_task_to_dispatcher(task: Any) -> None:
     from .models import TaskExecution
 
     try:
-        # Create execution record
-        TaskExecution.objects.create(task=task, status="pending", worker_id=f"dispatcher-{os.getpid()}")
+        execution = TaskExecution.objects.create(task=task, status="pending", worker_id=f"dispatcher-{os.getpid()}")
 
         # Ensure dispatcherd is configured before attempting to submit tasks
         from .dispatcherd_config import ensure_dispatcherd_configured
@@ -132,7 +136,7 @@ def submit_task_to_dispatcher(task: Any) -> None:
         queue = get_queue_for_function(task.function_name)
 
         # Submit to dispatcherd using execute_db_task as the entry point
-        submit_task(execute_db_task, kwargs={"task_id": task.id}, queue=queue)
+        submit_task(execute_db_task, kwargs={"task_id": task.id, "execution_id": execution.id}, queue=queue)
 
         # Update task status to indicate it's been submitted
         task.status = "pending"
@@ -145,6 +149,15 @@ def submit_task_to_dispatcher(task: Any) -> None:
         task.status = "failed"
         task.error_message = f"Failed to submit to dispatcher: {str(e)}"
         task.save()
+        # Also mark the TaskExecution row as failed so it doesn't stay pending
+        # forever. Guard with try/except in case the create() call itself failed
+        # and `execution` was never bound.
+        try:
+            execution.status = "failed"
+            execution.error_message = f"Failed to submit to dispatcher: {str(e)}"
+            execution.save()
+        except Exception as save_err:  # execution may be unbound if create() failed
+            logger.debug(f"Could not mark TaskExecution as failed: {save_err}")
 
 
 # runs during `manage.py metrics_service init-system-tasks`
@@ -152,15 +165,19 @@ def create_system_tasks() -> dict[str, Any]:
     """
     Create system-defined tasks from task groups in the database.
 
-    This function removes all existing system tasks and recreates them from
-    task group definitions, ensuring the database always matches the code.
+    This function is intended to be called only from the init container
+    (entrypoint-init.sh), before the application and scheduler start. At that
+    point no tasks can be running, so unconditional deletion is safe.
+
+    Removes all existing system tasks and recreates them from task group
+    definitions, ensuring the database always matches the code.
 
     Returns:
-        dict: Summary of tasks created and removed
+        dict: Summary of tasks created and removed.
     """
     try:
         from .models import Task
-        from .task_groups import get_all_enabled_tasks
+        from .task_groups import get_all_tasks_for_init
     except ImportError:
         # Handle case where Django isn't fully set up yet
         return {"error": "ERROR_DJANGO_NOT_READY", "created": 0, "removed": 0}
@@ -175,8 +192,12 @@ def create_system_tasks() -> dict[str, Any]:
         results["tasks"].append(f"Removed {removed_count} existing system tasks")
         logger.info(f"Removed {removed_count} existing system tasks")
 
-    # Get all task group definitions
-    task_groups = get_all_enabled_tasks()
+    # Get all task group definitions. Use get_all_tasks_for_init() (not get_all_enabled_tasks())
+    # so that feature-flagged tasks such as daily_anonymize and send_to_segment_daily are always
+    # written to the DB with _feature_flag stored in task_data. The runtime check in
+    # cron_scheduler._execute_scheduled_task() then gates execution without requiring re-init
+    # when the flag is toggled.
+    task_groups = get_all_tasks_for_init()
 
     # Create fresh tasks from task groups
     for task_id, config in task_groups.items():

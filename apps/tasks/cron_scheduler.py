@@ -7,16 +7,51 @@ and database tasks without database polling, using APScheduler for optimal perfo
 
 import logging
 import threading
+from datetime import timedelta
 from typing import Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
+from django.db import close_old_connections
 from django.utils import timezone
 
 from .tasks import TASK_FUNCTIONS
 
 logger = logging.getLogger(__name__)
+
+
+def _inject_dispatch_timestamps(function_name: str, task_data: dict) -> dict:
+    """
+    Inject a fixed time-window timestamp into task_data at the moment a recurring
+    task is dispatched by the scheduler.
+
+    Time-sensitive collectors compute their target window from timezone.now() when
+    no explicit timestamp is present. If the task is retried hours later, "now" has
+    shifted and the retry collects the wrong window. By pinning the timestamp here —
+    before the task is even submitted — every retry of the same execution copy
+    operates on the originally intended window.
+
+    Only sets the key when it is absent, so manually created tasks that already
+    carry an explicit timestamp are left untouched.
+    """
+    task_data = task_data.copy()
+
+    if function_name == "collect_hourly_metrics" and "hour_timestamp" not in task_data:
+        now = timezone.now()
+        task_data["hour_timestamp"] = (now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)).isoformat()
+
+    elif function_name == "collect_snapshot_metrics" and "collection_timestamp" not in task_data:
+        now = timezone.now()
+        task_data["collection_timestamp"] = (
+            now.replace(hour=23, minute=0, second=0, microsecond=0) - timedelta(days=1)
+        ).isoformat()
+
+    elif function_name == "collect_daily_metrics" and "hour_timestamp" not in task_data:
+        now = timezone.now()
+        task_data["hour_timestamp"] = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+    return task_data
 
 
 class UnifiedTaskScheduler:
@@ -183,6 +218,7 @@ class UnifiedTaskScheduler:
             args: Unused. The feature flag and other task data are re-read from task.task_data
                   at runtime to reflect the current DB state.
         """
+        close_old_connections()
         try:
             from .models import Task
 
@@ -241,6 +277,7 @@ class UnifiedTaskScheduler:
 
     def _periodic_database_sync(self):
         """Periodically check for new database tasks and add them to the scheduler."""
+        close_old_connections()
         try:
             from .models import Task
 
@@ -352,6 +389,7 @@ class UnifiedTaskScheduler:
 
     def _execute_database_task(self, task_id: int):
         """Execute a database task by submitting it to dispatcherd."""
+        close_old_connections()
         try:
             from .models import Task
 
@@ -369,7 +407,7 @@ class UnifiedTaskScheduler:
                 execution_task = Task.objects.create(
                     name=f"{task.name} (Execution {timezone.now().strftime('%Y-%m-%d %H:%M:%S')})",
                     function_name=task.function_name,
-                    task_data=task.task_data,
+                    task_data=_inject_dispatch_timestamps(task.function_name, task.task_data or {}),
                     scheduled_time=None,  # Execute immediately
                     cron_expression=None,  # This is not a recurring task
                     max_attempts=task.max_attempts,

@@ -172,13 +172,26 @@ class TestSystemTaskCreation(TestCase):
 
     def test_create_system_tasks_with_disabled_tasks(self):
         """Test handling of disabled system tasks."""
-        # Disabled tasks are filtered by get_all_enabled_tasks()
-        with patch("apps.tasks.task_groups.get_all_enabled_tasks", return_value={}):
+        with patch("apps.tasks.task_groups.get_all_tasks_for_init", return_value={}):
             result = tasks_system.create_system_tasks()
 
             # All tasks filtered out
             assert result["created"] == 0
             assert result["removed"] == 0
+
+    def test_all_system_tasks_deleted_on_reinit(self):
+        """All existing system tasks are unconditionally removed on reinit.
+
+        create_system_tasks() is only called from the init container, before
+        the app starts, so no tasks can be running at that point.
+        """
+        for name in ("task_a", "task_b"):
+            Task.objects.create(name=name, function_name="hello_world", is_system_task=True)
+        with patch("apps.tasks.task_groups.get_all_tasks_for_init", return_value={}):
+            result = tasks_system.create_system_tasks()
+
+        assert result["removed"] == 2
+        assert Task.objects.filter(is_system_task=True).count() == 0
 
 
 # =============================================================================
@@ -657,12 +670,14 @@ class TestSubmitTaskToDispatcherSuccess(TestCase):
         assert call_kwargs["kwargs"]["task_id"] == task.id
         assert call_kwargs["queue"] == "metrics_tasks"
 
+        # Verify execution_id is passed so execute_db_task can update the record
+        execution = TaskExecution.objects.filter(task=task).first()
+        assert execution is not None
+        assert call_kwargs["kwargs"]["execution_id"] == execution.id
+
         # Verify task status updated
         task.refresh_from_db()
         assert task.status == "pending"
-
-        # Verify execution record created
-        assert TaskExecution.objects.filter(task=task).exists()
 
     @patch("dispatcherd.publish.submit_task")
     @patch("apps.tasks.dispatcherd_config.ensure_dispatcherd_configured")
@@ -700,7 +715,7 @@ class TestCreateSystemTasksExceptionHandling(TestCase):
         )
 
     @patch("apps.tasks.tasks_system._create_task_from_group")
-    @patch("apps.tasks.task_groups.get_all_enabled_tasks")
+    @patch("apps.tasks.task_groups.get_all_tasks_for_init")
     def test_handles_exception_creating_individual_task(self, mock_get_tasks, mock_create_task):
         """Test create_system_tasks handles exceptions per task."""
         # Arrange
