@@ -35,58 +35,6 @@ class TaskUtilsTestCase(TestCase):
         task.save()
         return task
 
-    @patch("apps.tasks.utils.log_task_execution")
-    def test_task_execution_wrapper_success(self, mock_log):
-        """Test task execution wrapper with successful task."""
-
-        @utils.task_execution_wrapper("test_task")
-        def test_function(**kwargs):
-            return {"status": "success", "data": kwargs}
-
-        result = test_function(param1="value1", param2="value2")
-
-        self.assertEqual(mock_log.call_count, 2)  # start and complete
-        mock_log.assert_any_call("test_task", "start", "Starting test_task task")
-        mock_log.assert_any_call("test_task", "complete", "Task test_task completed successfully")
-
-        self.assertEqual(result["status"], "success")
-        self.assertEqual(result["data"]["param1"], "value1")
-
-    @patch("apps.tasks.utils.log_task_execution")
-    @patch("apps.tasks.utils.create_task_result")
-    def test_task_execution_wrapper_error(self, mock_create_result, mock_log):
-        """Test task execution wrapper with task error."""
-        mock_create_result.return_value = {"status": "error", "error": "Test error"}
-
-        @utils.task_execution_wrapper("test_task")
-        def test_function(**kwargs):
-            raise ValueError("Test error")
-
-        result = test_function(param1="value1")
-
-        self.assertEqual(mock_log.call_count, 2)  # start and error
-        mock_log.assert_any_call("test_task", "start", "Starting test_task task")
-        mock_log.assert_any_call("test_task", "error", "test_task task failed: Test error", level="error")
-
-        mock_create_result.assert_called_once_with("error", error="test_task task failed: Test error")
-        self.assertEqual(result["status"], "error")
-
-    def test_get_task_and_execution_with_execution(self):
-        """Test getting task and execution with execution ID."""
-        execution = TaskExecution.objects.create(task=self.task, status="pending", worker_id="test-worker")
-
-        task, exec_result = utils.get_task_and_execution(self.task.id, execution.id)
-
-        self.assertEqual(task.id, self.task.id)
-        self.assertEqual(exec_result.id, execution.id)
-
-    def test_get_task_and_execution_without_execution(self):
-        """Test getting task without execution ID."""
-        task, exec_result = utils.get_task_and_execution(self.task.id, None)
-
-        self.assertEqual(task.id, self.task.id)
-        self.assertIsNone(exec_result)
-
     def test_handle_task_error_with_instances(self):
         """Test error handling with task and execution instances."""
         execution = TaskExecution.objects.create(task=self.task, status="running", worker_id="test-worker")
@@ -316,6 +264,35 @@ class TestGetDbConnection(TestCase):
         self.assertEqual(result, mock_raw_conn)
 
 
+class TestRunWithLock(TestCase):
+    """Test run_with_lock function."""
+
+    @patch("metrics_utility.library.lock.lock")
+    def test_run_with_lock_acquired(self, mock_lock_cls):
+        """Test run_with_lock when lock is acquired."""
+        mock_lock_cls.return_value.__enter__ = MagicMock(return_value=True)
+        mock_lock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        fn = MagicMock(return_value={"status": "success"})
+        result = utils.run_with_lock("my_lock", "my_task", fn, foo="bar")
+
+        fn.assert_called_once_with(foo="bar")
+        self.assertEqual(result["status"], "success")
+
+    @patch("metrics_utility.library.lock.lock")
+    def test_run_with_lock_not_acquired(self, mock_lock_cls):
+        """Test run_with_lock when lock cannot be acquired."""
+        mock_lock_cls.return_value.__enter__ = MagicMock(return_value=False)
+        mock_lock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        fn = MagicMock()
+        result = utils.run_with_lock("my_lock", "my_task", fn)
+
+        fn.assert_not_called()
+        self.assertEqual(result["status"], "error")
+        self.assertIn("Could not acquire lock", result["error"])
+
+
 class TestGenerateSalt(TestCase):
     """Test generate_salt function."""
 
@@ -356,7 +333,8 @@ class TestSendToSegment(TestCase):
             result = send_to_segment("user1", "test_event", {"data": "test"})
 
             # Result should indicate segment not available if metrics-utility is not installed
-            self.assertIn(result, ["success", "segment_not_available", "error"])
+            self.assertEqual(result["status"], "unavailable")
+            self.assertEqual(result["error"], "segment_not_available")
 
     def test_send_to_segment_no_write_key(self):
         """Test send_to_segment when SEGMENT_WRITE_KEY not configured."""
@@ -369,7 +347,8 @@ class TestSendToSegment(TestCase):
 
             result = send_to_segment("user1", "test_event", {"data": "test"})
 
-            self.assertEqual(result, "segment_not_available")
+            self.assertEqual(result["status"], "unavailable")
+            self.assertIn("SEGMENT_WRITE_KEY not configured", result["error"])
 
     @patch("apps.tasks.collectors.send_anonymized_to_segment.logger")
     def test_send_to_segment_success(self, mock_logger):
@@ -389,7 +368,7 @@ class TestSendToSegment(TestCase):
 
             result = send_to_segment("user1", "test_event", {"data": "test"})
 
-            self.assertEqual(result, "success")
+            self.assertEqual(result["status"], "success")
             mock_storage_class.assert_called_once_with(
                 write_key="test-write-key",
                 user_id="user1",
@@ -418,7 +397,7 @@ class TestSendToSegment(TestCase):
 
             result = send_to_segment("user1", "test_event", large_data)
 
-            self.assertEqual(result, "success")
+            self.assertEqual(result["status"], "success")
             # Should use bulk mode for large data
             call_kwargs = mock_storage_class.call_args[1]
             self.assertTrue(call_kwargs["use_bulk"])
@@ -436,5 +415,5 @@ class TestSendToSegment(TestCase):
 
             result = send_to_segment("user1", "test_event", {"data": "test"})
 
-            self.assertTrue(result.startswith("error:"))
-            self.assertIn("Connection error", result)
+            self.assertEqual(result["status"], "error")
+            self.assertIn("Connection error", result["error"])

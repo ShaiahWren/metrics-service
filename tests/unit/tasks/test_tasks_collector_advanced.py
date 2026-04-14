@@ -123,22 +123,20 @@ class TestDailyRollupTask(TestCase):
     """Test daily metrics rollup task."""
 
     def test_daily_metrics_rollup_no_collections(self):
-        """Test daily rollup with no hourly collections."""
+        """Test daily rollup skips when no hourly collections exist."""
 
         summary_date = date(2024, 1, 15)
         result = daily_metrics_rollup(summary_date=summary_date.isoformat())
 
-        assert result["status"] == "success"
-        assert "summary_id" in result
-        assert result["hourly_collections_count"] == 0
+        assert result["status"] == "error"
+        assert "upstream dependency not met" in result["error"]
 
     def test_daily_metrics_rollup_default_date(self):
-        """Test daily rollup with default date (yesterday)."""
+        """Test daily rollup skips when no collections for yesterday."""
         result = daily_metrics_rollup()
 
-        assert result["status"] == "success"
-        # Should use yesterday's date
-        assert "summary_date" in result
+        assert result["status"] == "error"
+        assert "upstream dependency not met" in result["error"]
 
 
 @pytest.mark.unit
@@ -181,7 +179,7 @@ class TestSegmentSendingTask(TestCase):
             daily_summary=summary,
         )
 
-        mock_send_to_segment.return_value = "success"
+        mock_send_to_segment.return_value = {"status": "success"}
 
         result = send_anonymized_to_segment()
 
@@ -206,7 +204,7 @@ class TestSegmentSendingTask(TestCase):
             summary_date=date(2024, 1, 23), anonymized_data={}, status="pending", daily_summary=summary
         )
 
-        mock_send_to_segment.return_value = "success"
+        mock_send_to_segment.return_value = {"status": "success"}
 
         result = send_anonymized_to_segment(payload_id=payload.id)
 
@@ -233,7 +231,7 @@ class TestSegmentSendingTask(TestCase):
             max_retries=5,  # Still can retry
         )
 
-        mock_send_to_segment.return_value = "success"
+        mock_send_to_segment.return_value = {"status": "success"}
 
         result = send_anonymized_to_segment()
 
@@ -274,7 +272,7 @@ class TestSegmentSendingTask(TestCase):
         from apps.tasks.models import AnonymizedMetricsPayload, DailyMetricsSummary
 
         # Mock send_to_segment to return segment_not_available
-        mock_send_to_segment.return_value = "segment_not_available"
+        mock_send_to_segment.return_value = {"status": "unavailable", "error": "segment_not_available"}
 
         summary = DailyMetricsSummary.objects.create(
             summary_date=date(2024, 1, 26), aggregated_metrics={}, config_data={}, status="anonymized"
@@ -286,10 +284,10 @@ class TestSegmentSendingTask(TestCase):
 
         result = send_anonymized_to_segment()
 
-        # When segment not available, it counts as failed (retry status)
-        assert result["results"]["failed"] == 1
+        assert result["results"]["skipped"] == 1
+        assert result["results"]["failed"] == 0
         payload.refresh_from_db()
-        assert payload.status == "retry"
+        assert payload.status == "unavailable"
         assert "segment_not_available" in payload.error_message
 
 

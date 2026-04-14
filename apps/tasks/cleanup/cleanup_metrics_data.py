@@ -13,13 +13,11 @@ from typing import Any
 
 from django.utils import timezone
 
-from ..utils import create_task_result, log_task_execution, task, task_execution_wrapper
+from ..utils import create_task_result, log_task_execution
 
 logger = logging.getLogger(__name__)
 
 
-@task(queue="metrics_cleanup", decorate=False)
-@task_execution_wrapper("cleanup_metrics_data")
 def cleanup_metrics_data(**kwargs) -> dict[str, Any]:
     """
     Clean up old metrics data based on retention policies.
@@ -82,7 +80,7 @@ def cleanup_metrics_data(**kwargs) -> dict[str, Any]:
 
         old_sent_payloads = AnonymizedMetricsPayload.objects.filter(status="sent", sent_at__lt=sent_payload_cutoff)
         old_unsent_payloads = AnonymizedMetricsPayload.objects.filter(
-            status__in=["failed", "pending", "sending", "retry"], created__lt=unsent_payload_cutoff
+            status__in=["failed", "pending", "sending", "retry", "unavailable"], created__lt=unsent_payload_cutoff
         )
 
         total_old_payloads = old_sent_payloads.count() + old_unsent_payloads.count()
