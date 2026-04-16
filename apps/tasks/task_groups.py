@@ -5,8 +5,9 @@ This module defines task groups with feature enabled controls and provides
 a centralized way to manage different categories of tasks.
 
 Feature enabled settings are stored in the database using the Setting model, allowing
-runtime configuration without code changes. Values fall back to Django
-settings if not found in the database.
+runtime configuration without code changes. Values resolve in order: Setting row,
+then settings.FEATURE_ENABLED when the key is present (including env overrides),
+then DAB AAPFlag FEATURE_<name>_ENABLED, then the function default.
 
 run `manage.py metrics_utility init-system-tasks` to update the DB from `TASK_GROUPS`
 """
@@ -24,6 +25,13 @@ def get_feature_enabled_from_db(setting_name: str, default: bool = False) -> boo
     """
     Get a feature enabled value from database settings.
 
+    Order: ``Setting`` row → ``FEATURE_ENABLED[setting_name]`` if that key exists
+    (Dynaconf merges ``METRICS_SERVICE_FEATURE_ENABLED__*``) → boolean ``AAPFlag``
+    ``FEATURE_<setting_name>_ENABLED`` → ``default``.
+
+    Feature keys omitted from ``FEATURE_ENABLED`` in defaults (e.g. ``DASHBOARD_COLLECTION``)
+    use the AAPFlag / default path so platform toggles work without a duplicate static default.
+
     Args:
         setting_name: Name of the feature enabled setting
         default: Default value if not found in database
@@ -38,22 +46,32 @@ def get_feature_enabled_from_db(setting_name: str, default: bool = False) -> boo
         setting = Setting.objects.filter(setting_key=setting_name).first()
         if setting and setting.current_value:
             try:
-                # Parse JSON value from database
                 value = json.loads(setting.current_value)
-                return bool(value)
             except (json.JSONDecodeError, ValueError):
                 # If not valid JSON, treat as string boolean
-                return setting.current_value.lower() in ("true", "1", "yes", "on")
+                value = setting.current_value.lower() in ("true", "1", "yes", "on")
+            return bool(value)
 
-        # Fallback to Django settings
         feature_enabled = getattr(settings, "FEATURE_ENABLED", {})
-        return feature_enabled.get(setting_name, default)
+        if setting_name in feature_enabled:
+            return bool(feature_enabled[setting_name])
+
+        # Platform default from DAB (YAML-seeded), when not overridden above
+        try:
+            from ansible_base.feature_flags.models import AAPFlag
+
+            flag = AAPFlag.objects.filter(name=f"FEATURE_{setting_name}_ENABLED", condition="boolean").first()
+            if flag is not None:
+                return flag.value.lower() in ("true", "1", "yes", "on")
+        except Exception as e:
+            logger.warning(f"Error reading feature enabled setting {setting_name} from AAPFlag: {e}")
+
+        return default
 
     except Exception as e:
         logger.warning(f"Error reading feature enabled setting {setting_name} from database: {e}")
-        # Fallback to Django settings
         feature_enabled = getattr(settings, "FEATURE_ENABLED", {})
-        return feature_enabled.get(setting_name, default)
+        return bool(feature_enabled[setting_name]) if setting_name in feature_enabled else default
 
 
 class TaskGroup:
@@ -124,7 +142,6 @@ SYSTEM_TASKS_GROUP = TaskGroup(
             },
             "enabled": True,
             "description": "Daily cleanup of old completed/failed tasks (preserves recurring tasks)",
-            "category": "maintenance",
         },
         {
             "task_id": "hourly_health_check",
@@ -133,7 +150,6 @@ SYSTEM_TASKS_GROUP = TaskGroup(
             "args": {},
             "enabled": True,
             "description": "Hourly system health check",
-            "category": "monitoring",
         },
     ],
 )
@@ -154,7 +170,6 @@ METRICS_COLLECTION_GROUP = TaskGroup(
             "args": {"collector_type": "job_host_summary_service"},
             "enabled": True,
             "description": "Collect job host summary metrics every hour (service variant)",
-            "category": "hourly_collection",
         },
         {
             "task_id": "hourly_unified_jobs",
@@ -163,7 +178,6 @@ METRICS_COLLECTION_GROUP = TaskGroup(
             "args": {"collector_type": "unified_jobs"},
             "enabled": True,
             "description": "Collect unified jobs metrics every hour",
-            "category": "hourly_collection",
         },
         {
             "task_id": "hourly_credentials",
@@ -172,7 +186,6 @@ METRICS_COLLECTION_GROUP = TaskGroup(
             "args": {"collector_type": "credentials_service"},
             "enabled": True,
             "description": "Collect credentials metrics every hour",
-            "category": "hourly_collection",
         },
         {
             "task_id": "hourly_job_events",
@@ -181,7 +194,6 @@ METRICS_COLLECTION_GROUP = TaskGroup(
             "args": {"collector_type": "main_jobevent_service"},
             "enabled": False,  # NOT enabled by default, for performance
             "description": "Collect job events (event modules) metrics every hour",
-            "category": "hourly_collection",
         },
         # Daily Snapshot Collection
         {
@@ -191,7 +203,6 @@ METRICS_COLLECTION_GROUP = TaskGroup(
             "args": {"collector_type": "execution_environments"},
             "enabled": True,
             "description": "Collect execution environments snapshot daily",
-            "category": "daily_collection",
         },
         {
             "task_id": "daily_config",
@@ -200,7 +211,6 @@ METRICS_COLLECTION_GROUP = TaskGroup(
             "args": {"collector_type": "config"},
             "enabled": True,
             "description": "Collect system configuration snapshot daily",
-            "category": "daily_collection",
         },
         {
             "task_id": "daily_controller_version",
@@ -209,7 +219,6 @@ METRICS_COLLECTION_GROUP = TaskGroup(
             "args": {"collector_type": "controller_version_service"},
             "enabled": True,
             "description": "Collect controller version snapshot daily",
-            "category": "daily_collection",
         },
         {
             "task_id": "daily_table_metadata",
@@ -218,7 +227,6 @@ METRICS_COLLECTION_GROUP = TaskGroup(
             "args": {"collector_type": "table_metadata"},
             "enabled": True,
             "description": "Collect table metadata snapshot daily",
-            "category": "daily_collection",
         },
         {
             "task_id": "daily_feature_flags",
@@ -227,7 +235,6 @@ METRICS_COLLECTION_GROUP = TaskGroup(
             "args": {"collector_type": "feature_flags_service"},
             "enabled": True,
             "description": "Collect feature flags snapshot daily",
-            "category": "daily_collection",
         },
         {
             "task_id": "daily_task_executions",
@@ -236,7 +243,6 @@ METRICS_COLLECTION_GROUP = TaskGroup(
             "args": {"collector_type": "task_executions_service"},
             "enabled": True,
             "description": "Collect task execution observability metrics for the previous day (pipeline health)",
-            "category": "daily_collection",
         },
         # Daily Rollup
         {
@@ -246,7 +252,6 @@ METRICS_COLLECTION_GROUP = TaskGroup(
             "args": {},
             "enabled": True,
             "description": "Create daily rollup from hourly collections",
-            "category": "daily_rollup",
         },
         # Cleanup Task
         {
@@ -260,7 +265,6 @@ METRICS_COLLECTION_GROUP = TaskGroup(
             },
             "enabled": True,
             "description": "Clean up old metrics data based on retention policies",
-            "category": "maintenance",
         },
     ],
 )
@@ -280,24 +284,14 @@ ANONYMIZATION_GROUP = TaskGroup(
             "args": {},
             "enabled": True,
             "description": "Anonymize daily summary for Segment transmission",
-            "category": "daily_anonymization",
-        },
-        {
-            "task_id": "send_to_segment_daily",
-            "function": "send_anonymized_to_segment",
-            "cron": "30 3 * * *",  # Daily at 3:30 AM
-            "args": {},
-            "enabled": True,
-            "description": "Send anonymized payloads to Segment",
-            "category": "daily_send",
         },
     ],
 )
 
 # Dashboard Collection Group - automation-reports integration
 # Feature flag: DASHBOARD_COLLECTION (default: False — customer opt-in)
-# Override via env var: METRICS_SERVICE_FEATURE_ENABLED__DASHBOARD_COLLECTION=true
-# Or set in DB via: manage.py metrics_service init-default-settings (then update via settings API)
+# Enable via METRICS_SERVICE_FEATURE_ENABLED__DASHBOARD_COLLECTION, DAB AAPFlag
+# FEATURE_DASHBOARD_COLLECTION_ENABLED, or dynamic_settings.Setting — see get_feature_enabled_from_db.
 DASHBOARD_COLLECTION_GROUP = TaskGroup(
     name="dashboard_collection",
     description="Automation-reports dashboard data collection (SQL-based, separate from anonymization)",
@@ -307,32 +301,30 @@ DASHBOARD_COLLECTION_GROUP = TaskGroup(
             "task_id": "initial_dashboard_collection",
             "function": "collect_dashboard_reports_initial_data",
             "cron": None,  # No schedule, run once on enable
-            "args": {},  # Uses incremental collection by default to minimize load
+            "args": {},
             "enabled": True,
             "description": "Initial dashboard report collection",
-            "category": "dashboard_collection",
         },
         {
             "task_id": "daily_dashboard_collection",
             "function": "collect_dashboard_reports_data",
+            # FIXME: this is broken, the setting will only be read on initial task setup
             "cron": (getattr(settings, "DASHBOARD_COLLECTION", {}) or {}).get(
                 "COLLECTION_SCHEDULE_CRON", "0 */6 * * *"
             ),
             "args": {"incremental": True},  # Uses incremental collection by default to minimize load
             "enabled": False,
             "description": "Dashboard report collection (default every 6 hours)",
-            "category": "dashboard_collection",
         },
         {
             "task_id": "cleanup_dashboard_reports_old_data",
             "function": "cleanup_dashboard_reports_old_data",
-            "cron": "0 5 * * *",  # Daily at 5:00 AM
+            "cron": "30 5 * * *",  # Daily at 5:30 AM
             "args": {
                 "retention_period_days": 90,
             },
             "enabled": True,
             "description": "Clean up old dashboard report data based on retention policy",
-            "category": "maintenance",
         },
     ],
 )

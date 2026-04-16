@@ -4,6 +4,7 @@ from ansible_base.lib.routers import AssociationResourceRouter
 from django.urls import include, path
 
 from apps.dashboard_reports.viewsets import (
+    DashboardCollectionStatusViewSet,
     DashboardReportViewSet,
     FilterSetsViewSet,
     JobTemplatesViewSet,
@@ -14,8 +15,6 @@ from apps.dashboard_reports.viewsets import (
     TemplateMetadataViewSet,
 )
 
-app_name = "dashboard_reports"
-
 router = AssociationResourceRouter()
 router.register(r"organizations", OrganizationsViewSet, basename="organizations")
 router.register(r"templates", JobTemplatesViewSet, basename="templates")
@@ -25,7 +24,11 @@ router.register(r"report", DashboardReportViewSet, basename="report")
 router.register(r"subscription_costs", SubscriptionCostViewSet, basename="subscription_costs")
 router.register(r"template_metadata", TemplateMetadataViewSet, basename="template_metadata")
 router.register(r"filter_sets", FilterSetsViewSet, basename="filter_sets")
+router.register(r"collection_status", DashboardCollectionStatusViewSet, basename="collection_status")
 
 urlpatterns = [
-    path("api/v1/dashboard_reports/", include(router.urls)),
+    path(
+        "api/v1/dashboard_reports/",
+        include((router.urls, "dashboard_reports"), namespace="v1"),
+    ),
 ]
