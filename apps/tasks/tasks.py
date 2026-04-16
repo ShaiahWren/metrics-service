@@ -2,11 +2,13 @@
 Background tasks for metrics_service using dispatcherd.
 
 This module serves as an aggregator, importing and re-exporting tasks from
-individual task modules organized by queue:
-- simple/: Simple system tasks (metrics_tasks queue)
-- cleanup/: Cleanup and maintenance tasks (metrics_cleanup queue)
-- collectors/: Metrics collection and anonymization tasks (metrics_collectors queue)
+individual task modules:
+- simple/: Simple system tasks
+- cleanup/: Cleanup and maintenance tasks
+- collectors/: Metrics collection and anonymization tasks
 - tasks_system: Core task execution infrastructure and utilities
+
+Queue routing is defined per-function in TASK_METADATA ("queue" field).
 """
 
 import logging
@@ -29,7 +31,6 @@ from .collectors.send_anonymized_to_segment import send_anonymized_to_segment
 from .simple.hello_world import hello_world
 from .tasks_system import (
     create_system_tasks,
-    get_system_task_info,
     submit_task_to_dispatcher,
 )
 
@@ -63,10 +64,18 @@ TASK_LOCKS = {
     "send_anonymized_to_segment",
 }
 
+
+def get_queue_for_function(function_name: str) -> str:
+    """Get the appropriate queue name for a task function; or 'maintenance'"""
+    metadata = TASK_METADATA.get(function_name)
+    return (metadata and metadata.get("queue", None)) or "maintenance"
+
+
 # Enhanced task metadata for dashboard display
 TASK_METADATA = {
     # Testing
     "hello_world": {
+        "queue": "maintenance",
         "category": "Testing",
         "description": "Simple hello world task for testing the dispatcherd integration",
         "parameters": {},
@@ -74,7 +83,8 @@ TASK_METADATA = {
     },
     # Maintenance
     "cleanup_old_tasks": {
-        "category": "Maintenance",
+        "queue": "maintenance",
+        "category": "Maintenance",  # task system records
         "description": "Clean up old completed and failed tasks (preserves recurring tasks by default)",
         "parameters": {
             "days_old": {
@@ -104,10 +114,12 @@ TASK_METADATA = {
             {"name": "Standard cleanup (5 days)", "data": {"days_old": 5}},
             {"name": "Test cleanup (dry run)", "data": {"days_old": 7, "dry_run": True}},
             {"name": "Conservative cleanup", "data": {"days_old": 10, "include_executions": False}},
+            {"name": "Include recurring tasks", "data": {"days_old": 30, "preserve_recurring": False}},
         ],
     },
     "cleanup_activitystream": {
-        "category": "Maintenance",
+        "queue": "maintenance",
+        "category": "Maintenance",  # DAB activity stream audit log
         "description": "Clean up old ActivityStream (django-ansible-base) audit log entries",
         "parameters": {
             "days_old": {
@@ -130,7 +142,8 @@ TASK_METADATA = {
         ],
     },
     "cleanup_metrics_data": {
-        "category": "Maintenance",
+        "queue": "metrics",
+        "category": "Maintenance",  # metrics collection data
         "description": "Clean up old metrics data based on retention policies",
         "parameters": {
             "hourly_retention_days": {
@@ -171,6 +184,7 @@ TASK_METADATA = {
     },
     # Metrics Collection (Hourly and Snapshot)
     "collect_hourly_metrics": {
+        "queue": "metrics",
         "category": "Metrics Collection",
         "description": "Collect hourly time-series metrics for a specific collector type",
         "parameters": {
@@ -196,6 +210,7 @@ TASK_METADATA = {
         ],
     },
     "collect_daily_metrics": {
+        "queue": "metrics",
         "category": "Metrics Collection",
         "description": "Collect daily time-range metrics (previous full day) for a specific collector type",
         "parameters": {
@@ -226,6 +241,7 @@ TASK_METADATA = {
         ],
     },
     "collect_snapshot_metrics": {
+        "queue": "metrics",
         "category": "Metrics Collection",
         "description": "Collect daily snapshot metrics for a specific collector type",
         "parameters": {
@@ -240,10 +256,12 @@ TASK_METADATA = {
             {"name": "System config", "data": {"collector_type": "config"}},
             {"name": "Controller version", "data": {"collector_type": "controller_version_service"}},
             {"name": "Table metadata", "data": {"collector_type": "table_metadata"}},
+            {"name": "Feature flags", "data": {"collector_type": "feature_flags_service"}},
         ],
     },
     # Daily Rollup and Anonymization
     "daily_metrics_rollup": {
+        "queue": "metrics",
         "category": "Metrics Rollup",
         "description": "Merge hourly collections and create daily rollup summary",
         "parameters": {
@@ -258,6 +276,7 @@ TASK_METADATA = {
         ],
     },
     "daily_anonymize_and_prepare": {
+        "queue": "metrics",
         "category": "Metrics Anonymization",
         "description": "Anonymize daily rollup and prepare payload for transmission",
         "parameters": {
@@ -273,9 +292,11 @@ TASK_METADATA = {
         "examples": [
             {"name": "Default (yesterday)", "data": {}},
             {"name": "Specific date", "data": {"summary_date": "2024-01-01"}},
+            {"name": "With custom salt", "data": {"summary_date": "2024-01-01", "salt": "my-custom-salt"}},
         ],
     },
     "send_anonymized_to_segment": {
+        "queue": "metrics",
         "category": "Metrics Transmission",
         "description": "Send anonymized metrics payloads to Segment.com",
         "parameters": {
@@ -302,6 +323,7 @@ TASK_METADATA = {
             {"name": "Default (send pending)", "data": {}},
             {"name": "Specific payload", "data": {"payload_id": 123}},
             {"name": "Send batch of 10", "data": {"max_payloads": 10}},
+            {"name": "Recover stale payloads (30 min)", "data": {"stale_minutes": 30}},
         ],
     },
 }
@@ -315,7 +337,6 @@ __all__ = [
     "cleanup_metrics_data",
     "submit_task_to_dispatcher",
     "create_system_tasks",
-    "get_system_task_info",
     # Metrics collection (hourly, snapshot, and daily time-range)
     "collect_hourly_metrics",
     "collect_snapshot_metrics",
