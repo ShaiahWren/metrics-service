@@ -40,10 +40,10 @@ jobs:
       - name: "Checkout metrics-service (${{ github.ref }})"
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: "Check for wildcard cron minutes in renovate config"
+      - name: "Check renovate cron schedules use wildcard minutes"
         run: |
-          if grep -Pn '"schedule".*"\* ' renovate.json; then
-            echo "::error::Cron schedules in renovate.json must not use * for minutes (runs every minute). Use a specific minute like 0."
+          if grep -n '"schedule"' renovate.json | grep -v '"\* '; then
+            echo "::error::Renovate requires * for the minutes field — it doesn't support minute granularity."
             exit 1
           fi
 
