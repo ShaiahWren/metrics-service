@@ -4,22 +4,12 @@ import uuid
 
 from django.db import models
 
-try:
-    from ansible_base.lib.abstract_models import CommonModel
-except ImportError:
-    class CommonModel(models.Model):
-        created = models.DateTimeField(auto_now_add=True)
-        modified = models.DateTimeField(auto_now=True)
-
-        class Meta:
-            abstract = True
-
 
 def _uuid4_str() -> str:
     return str(uuid.uuid4())
 
 
-class ExternalEvent(CommonModel):
+class ExternalEvent(models.Model):
     """Telemetry payload received from an external AAP service."""
 
     PAYLOAD_TYPE_CHOICES = [
@@ -32,6 +22,9 @@ class ExternalEvent(CommonModel):
         ("sent", "Sent"),
         ("failed", "Failed"),
     ]
+
+    created = models.DateTimeField(auto_now_add=True)
+    modified = models.DateTimeField(auto_now=True)
 
     service_name = models.CharField(max_length=100)
     segment_event_name = models.CharField(max_length=255)

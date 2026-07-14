@@ -51,17 +51,23 @@ class IngestView(APIView):
         )
 
     def _dispatch_batch_task(self, event: ExternalEvent) -> None:
-        """Create a Task and dispatch it immediately via dispatcherd."""
+        """Create a Task and dispatch it immediately via dispatcherd.
+
+        Uses crum.impersonate(None) to temporarily clear the thread-local user
+        so DAB's CommonModel doesn't try to assign our ServiceUser as created_by.
+        """
         try:
+            import crum
             from apps.tasks.models import Task
             from apps.tasks.tasks import submit_task_to_dispatcher
 
-            task = Task.objects.create(
-                name=f"Send external batch from {event.service_name} (event {event.pk})",
-                function_name="send_external_batch_to_segment",
-                task_data={"event_id": event.pk},
-                is_system_task=True,
-            )
+            with crum.impersonate(None):
+                task = Task.objects.create(
+                    name=f"Send external batch from {event.service_name} (event {event.pk})",
+                    function_name="send_external_batch_to_segment",
+                    task_data={"event_id": event.pk},
+                    is_system_task=True,
+                )
             submit_task_to_dispatcher(task)
             logger.debug("Dispatched batch send task %s for event %s", task.pk, event.pk)
         except Exception:

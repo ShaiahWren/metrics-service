@@ -11,11 +11,17 @@ logger = logging.getLogger(__name__)
 
 
 class ServiceUser:
-    """Minimal user-like object satisfying DRF's IsAuthenticated check."""
+    """Minimal user-like object satisfying Django/DRF auth checks."""
+
+    is_authenticated = True
+    is_anonymous = False
+    is_active = True
+    is_staff = False
+    is_superuser = False
+    pk = None
 
     def __init__(self, service_name: str) -> None:
         self.service_name = service_name
-        self.is_authenticated = True
 
     def __bool__(self) -> bool:
         return True
