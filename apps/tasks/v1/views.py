@@ -199,7 +199,14 @@ class TaskViewSet(BaseViewSet):
 
     @extend_schema(
         summary="Retry a failed task.",
-        description="This endpoint replicates the functionality of: 'python manage.py manage_tasks retry <task_id>'",
+        description=(
+            "This endpoint replicates the functionality of: 'python manage.py manage_tasks retry <task_id>'. "
+            'Pass {"force": true} to bypass the max_attempts check (task must still be failed).'
+        ),
+        request=inline_serializer(
+            name="TaskRetryRequest",
+            fields={"force": serializers.BooleanField(default=False, required=False)},
+        ),
         responses={
             200: inline_serializer(name="TaskRetryResponse", fields={"message": serializers.CharField()}),
             400: inline_serializer(name="TaskRetryErrorResponse", fields={"error": serializers.CharField()}),
@@ -221,20 +228,14 @@ class TaskViewSet(BaseViewSet):
             Response: Success or error response
         """
         task = self.get_object()
+        force = bool(request.data.get("force", False))
 
-        if not task.can_retry():
+        if not task.retry(force=force):
             error_response = build_error_response(
                 f"Cannot retry task: status={task.status}, attempts={task.attempts}/{task.max_attempts}",
                 status_code=400,
             )
             return Response(error_response, status=status.HTTP_400_BAD_REQUEST)
-
-        # Reset task status for retry (same logic as manage_tasks.py)
-        task.status = "pending"
-        task.error_message = ""
-        task.started_at = None
-        task.completed_at = None
-        task.save(update_fields=["status", "error_message", "started_at", "completed_at", "modified"])
 
         return Response({"message": f"Task '{task.name}' queued for retry"})
 
