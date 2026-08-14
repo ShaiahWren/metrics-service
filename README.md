@@ -14,6 +14,16 @@ A modern Django-based service built for the Ansible Automation Platform (AAP) ec
 - **📝 API Documentation** - Interactive Swagger/OpenAPI documentation
 - **🔧 Metrics Collection** - Integrated metrics-utility for data collection
 
+## Architecture
+
+Architecture documentation lives in [`docs/README.md`](docs/README.md), with
+per-domain guides for [core/RBAC](docs/core-rbac.md), the
+[task system](docs/task-system.md), [APScheduler](docs/apscheduler.md),
+[collectors](docs/collectors.md), [dynamic settings](docs/dynamic-settings.md),
+[anonymization](docs/anonymization-and-transmission.md), [dashboard sync](docs/dashboard-sync.md),
+[dashboard API](docs/dashboard-reports-api.md), and [data models](docs/data-models.md).
+Worker execution uses [dispatcherd](https://github.com/ansible/dispatcherd).
+
 ## Quick Start
 
 ### Option 1: Docker + dev server (Recommended)
@@ -147,15 +157,17 @@ Tasks are automatically routed based on their properties:
 
 No manual intervention required - create a task and it's automatically processed!
 
-### Task Groups & Feature Flags
+### Task Groups & Feature Enablement Settings
 
-We have these feature flags:
+These **feature enablement settings** gate scheduled task groups (not platform
+feature flags from DAB `AAPFlag` or Controller `feature_flags_service` data):
 
-|flag|default|
+|enablement setting|default|
 |-|-|
 |`METRICS_COLLECTION`|true|
 |`ANONYMIZED_DATA_COLLECTION`|true|
-|`DASHBOARD_COLLECTION`|false (customer opt-in)|
+|`DASHBOARD_COLLECTION`|true|
+|`INDIRECT_NODE_COLLECTION`|false (customer opt-in)|
 
 You can change defaults using `METRICS_SERVICE_FEATURE__` prefixed environment variables.
 
@@ -167,13 +179,20 @@ METRICS_SERVICE_FEATURE__METRICS_COLLECTION=false
 METRICS_SERVICE_FEATURE__ANONYMIZED_DATA_COLLECTION=false
 ```
 
-Feature flags are resolved at runtime with this precedence:
+Feature enablement settings are resolved at runtime with this precedence (see
+[docs/dynamic-settings.md](docs/dynamic-settings.md) for full detail):
 
-1. **DB row** in `dynamic_settings_setting` (written via the API, `dbshell`, or a prior `init-default-settings` run) — always wins
-2. **Env var** (`METRICS_SERVICE_FEATURE__*`) — used on fresh installs or when no DB row exists
-3. **Static default** in `settings.FEATURE` — fallback if neither of the above is set
+1. **DB row** in `dynamic_settings_setting` — always wins when present
+2. **Env var** (`METRICS_SERVICE_FEATURE__*`) — merged into `settings.FEATURE` via Dynaconf
+3. **Installer attribute** — top-level `FEATURE_<name>_ENABLED` from `settings.yaml`
+4. **DAB `AAPFlag`** — platform `FEATURE_<name>_ENABLED` boolean flag
+5. **Static default** in `settings.FEATURE` / function `default` argument
 
-`init-default-settings` does not pre-seed feature flags into the database, so env vars take effect on fresh installs unless a DB row exists. DB rows always take precedence over env vars. A pod restart is required for env var changes to be picked up by the running service.
+`init-default-settings` does not pre-seed enablement values into the database on
+fresh install. A `false` DB row is an explicit opt-out that survives upgrades. A
+`true` DB row overrides a `false` env resolution when operators intentionally
+re-enable a feature. Env var changes require a pod restart; DB/API toggles take
+effect at task execution time without restart.
 
 If system tasks are missing `_feature_flag` for metrics collection templates, run `python manage.py metrics_service init-system-tasks` to sync them.
 
@@ -412,7 +431,7 @@ METRICS_SERVICE_LOG_LEVEL=DEBUG python manage.py metrics_service run
 All logs use Django's configured format with timestamps, log levels, request IDs (when applicable), module names, and messages:
 
 ```
-2025-01-18 10:15:23,456 INFO     [abc123] apps.tasks.signals New task created: Cleanup (ID: 42)
+2025-01-18 10:15:23,456 INFO     [abc123] apps.tasks.cron_scheduler Found new immediate task: Cleanup (ID: 42)
 2025-01-18 10:15:24,789 WARNING  [] apps.core.utils Database connection slow: 2.3s
 ```
 
