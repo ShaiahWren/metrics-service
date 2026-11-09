@@ -3,10 +3,11 @@ Final tests to push coverage over 80%.
 Targets remaining uncovered sections.
 """
 
-from io import StringIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
+
+from tests.test_utils import get_cmd
 
 
 # ---------------------------------------------------------------------------
@@ -37,24 +38,6 @@ def test_tasks_apps_config():
 
     assert TasksConfig.name == "apps.tasks"
     assert TasksConfig.default_auto_field == "django.db.models.BigAutoField"
-
-
-# ---------------------------------------------------------------------------
-# management command _handle_run_command paths
-# ---------------------------------------------------------------------------
-def get_cmd():
-    from apps.tasks.management.commands.metrics_service import Command
-    from apps.tasks.services.output_formatter import OutputFormatter
-
-    cmd = Command()
-    cmd.stdout = StringIO()
-    mock_style = MagicMock()
-    mock_style.SUCCESS.side_effect = lambda msg: msg
-    mock_style.ERROR.side_effect = lambda msg: msg
-    mock_style.WARNING.side_effect = lambda msg: msg
-    cmd.style = mock_style
-    cmd.output = OutputFormatter(stdout=cmd.stdout, style=cmd.style)
-    return cmd
 
 
 @pytest.mark.unit
